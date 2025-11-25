@@ -1,0 +1,132 @@
+name: Build Android APK (Capacitor)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  actions: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '18'
+      JAVA_VERSION: '11'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Install Android SDK & build-tools (via runner helper)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: default
+          arch: x86_64
+
+      - name: Print environment (debug)
+        run: |
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          java -version
+          node -v
+          npm -v
+
+      - name: Install npm deps
+        run: |
+          npm ci || npm install
+
+      - name: Ensure Capacitor Android platform exists
+        run: |
+          if [ -d android ]; then
+            npx cap sync android || true
+          else
+            npx cap add android || npx cap sync android
+          fi
+
+      - name: Copy web assets to native
+        run: npx cap copy android
+
+      - name: Gradle assemble (debug + release)
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug assembleRelease -x lint
+
+      - name: Collect APK paths
+        id: paths
+        run: |
+          echo "Searching for built APKs..."
+          DEBUG_APK=$(find android -type f -path "*/outputs/apk/debug/*.apk" | head -n1 || true)
+          RELEASE_UNSIGNED=$(find android -type f -path "*/outputs/apk/release/*release*.apk" | head -n1 || true)
+          echo "debug=$DEBUG_APK" >> $GITHUB_OUTPUT
+          echo "release_unsigned=$RELEASE_UNSIGNED" >> $GITHUB_OUTPUT
+          ls -lah $(dirname "$DEBUG_APK") || true
+          ls -lah $(dirname "$RELEASE_UNSIGNED") || true
+
+      - name: Optionally sign release APK (if keystore provided)
+        if: ${{ secrets.ANDROID_KEYSTORE != '' }}
+        run: |
+          echo "Keystore provided — decoding and signing release APK..."
+          mkdir -p android/app
+          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 --decode > android/app/keystore.jks
+          KEYSTORE_PATH=android/app/keystore.jks
+          DEBUG_APK=${{ steps.paths.outputs.debug }}
+          RELEASE_UNSIGNED=${{ steps.paths.outputs.release_unsigned }}
+          APKSIGNER=$(find $ANDROID_HOME -name apksigner | head -n1)
+          ZIPALIGN=$(find $ANDROID_HOME -name zipalign | head -n1)
+          ALIGNED=android/app/build/outputs/apk/release/app-release-aligned.apk
+          SIGNED=android/app/build/outputs/apk/release/app-release-signed.apk
+          $ZIPALIGN -v -p 4 "$RELEASE_UNSIGNED" "$ALIGNED"
+          $APKSIGNER sign --ks "$KEYSTORE_PATH" --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.KEY_PASSWORD }} --ks-key-alias "${{ secrets.KEY_ALIAS }}" --out "$SIGNED" "$ALIGNED"
+          echo "Signed APK created: $SIGNED"
+          echo "signed_apk=$SIGNED" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release and upload APKs
+        id: release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ github.run_id }}
+          name: TapRush APK build ${{ github.run_id }}
+          body: "Automated APK build for commit ${{ github.sha }} on branch ${{ github.ref }}."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts to Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: ${{ steps.paths.outputs.debug }}
+          asset_name: app-debug.apk
+          asset_content_type: application/vnd.android.package-archive
+
+      - name: Upload signed release if exists
+        if: steps.paths.outputs.release_unsigned != '' && secrets.ANDROID_KEYSTORE != ''
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: android/app/build/outputs/apk/release/app-release-signed.apk
+          asset_name: app-release-signed.apk
+          asset_content_type: application/vnd.android.package-archive
+
+      - name: Upload unsigned release (fallback)
+        if: steps.paths.outputs.release_unsigned != '' && secrets.ANDROID_KEYSTORE == ''
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: ${{ steps.paths.outputs.release_unsigned }}
+          asset_name: app-release-unsigned.apk
+          asset_content_type: application/vnd.android.package-archive
