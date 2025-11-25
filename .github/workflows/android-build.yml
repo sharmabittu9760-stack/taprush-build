@@ -98,7 +98,7 @@ jobs:
           asset_content_type: application/vnd.android.package-archive
 
       - name: Upload signed release if exists
-        if: steps.paths.outputs.release_unsigned != '' && secrets.ANDROID_KEYSTORE != ''
+        if: ${{ steps.paths.outputs.release_unsigned != '' && secrets.ANDROID_KEYSTORE != '' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
@@ -107,7 +107,7 @@ jobs:
           asset_content_type: application/vnd.android.package-archive
 
       - name: Upload unsigned release (fallback)
-        if: steps.paths.outputs.release_unsigned != '' && secrets.ANDROID_KEYSTORE == ''
+        if: ${{ steps.paths.outputs.release_unsigned != '' && secrets.ANDROID_KEYSTORE == '' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
