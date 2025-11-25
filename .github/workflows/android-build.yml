@@ -23,13 +23,15 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          # quote the expression to avoid parser issues
+          node-version: '${{ env.NODE_VERSION }}'
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          # quote the expression
+          java-version: '${{ env.JAVA_VERSION }}'
 
       - name: Install Android SDK & build-tools (via runner helper)
         uses: reactivecircus/android-emulator-runner@v2
@@ -76,24 +78,6 @@ jobs:
           echo "release_unsigned=$RELEASE_UNSIGNED" >> $GITHUB_OUTPUT
           ls -lah $(dirname "$DEBUG_APK") || true
           ls -lah $(dirname "$RELEASE_UNSIGNED") || true
-
-      - name: Optionally sign release APK (if keystore provided)
-        if: ${{ secrets.ANDROID_KEYSTORE != '' }}
-        run: |
-          echo "Keystore provided — decoding and signing release APK..."
-          mkdir -p android/app
-          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 --decode > android/app/keystore.jks
-          KEYSTORE_PATH=android/app/keystore.jks
-          DEBUG_APK=${{ steps.paths.outputs.debug }}
-          RELEASE_UNSIGNED=${{ steps.paths.outputs.release_unsigned }}
-          APKSIGNER=$(find $ANDROID_HOME -name apksigner | head -n1)
-          ZIPALIGN=$(find $ANDROID_HOME -name zipalign | head -n1)
-          ALIGNED=android/app/build/outputs/apk/release/app-release-aligned.apk
-          SIGNED=android/app/build/outputs/apk/release/app-release-signed.apk
-          $ZIPALIGN -v -p 4 "$RELEASE_UNSIGNED" "$ALIGNED"
-          $APKSIGNER sign --ks "$KEYSTORE_PATH" --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.KEY_PASSWORD }} --ks-key-alias "${{ secrets.KEY_ALIAS }}" --out "$SIGNED" "$ALIGNED"
-          echo "Signed APK created: $SIGNED"
-          echo "signed_apk=$SIGNED" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release and upload APKs
         id: release
