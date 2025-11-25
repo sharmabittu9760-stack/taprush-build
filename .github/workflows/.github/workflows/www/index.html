@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>TapRush — Launch Kit</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+  <style>
+    body { margin:0; background:#0f1720; color:#fff; font-family: Inter, Arial, sans-serif; -webkit-font-smoothing:antialiased; }
+    .ui { position: fixed; left: 12px; bottom: 12px; z-index:2000; display:flex; gap:8px; }
+    .btn { background:#ffdd57; color:#000; padding:10px 12px; border-radius:10px; font-weight:700; text-decoration:none; cursor:pointer; border:0; }
+    .small { padding:6px 8px; font-size:13px; }
+    #codeModal { position:fixed; left:0; right:0; top:0; bottom:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:3000; }
+    #codeBox { background:#111; padding:18px; border-radius:8px; width:360px; max-width:92%; box-shadow:0 6px 30px rgba(0,0,0,0.6); }
+    input, button { font-size:16px; padding:8px; width:100%; margin-top:8px; border-radius:6px; border:1px solid #333; background:#0b0b0b; color:#fff; }
+    input::placeholder { color:#777; }
+    .hint { font-size:12px; color:#bbb; margin-top:6px; }
+    #topToast { position:fixed; left:50%; transform:translateX(-50%); top:16px; z-index:4000; display:none; padding:10px 14px; border-radius:8px; font-weight:700; }
+    .center-msg { position: fixed; left: 50%; top: 48%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.6); padding: 14px; border-radius:10px; }
+  </style>
+</head>
+<body>
+  <div id="codeModal" aria-hidden="true">
+    <div id="codeBox">
+      <div style="font-weight:800; font-size:18px;">Enter Unlock Code</div>
+      <input id="unlockInput" placeholder="Enter code you received" />
+      <button id="submitCode">Unlock</button>
+      <div class="hint">If you paid via UPI, send screenshot to <span id="sellerPhone">+91XXXXXXXXXX</span> and seller will give a code.</div>
+      <div style="margin-top:8px; text-align:right;"><button id="closeCode" class="small">Close</button></div>
+      <div id="unlockMsg" class="hint"></div>
+    </div>
+  </div>
+
+  <div class="ui">
+    <button id="buyBtn" class="btn">Buy Full (₹50)</button>
+    <button id="enterCodeBtn" class="btn small">Enter Code</button>
+  </div>
+
+  <div id="topToast"></div>
+
+<script>
+// ---------- CONFIG - REPLACE BEFORE PUBLISH ----------
+const CONFIG = {
+  VPA: "9760858232@ptyes",          // your UPI VPA (patched)
+  SELLER_PHONE: "+919760858232",    // your WhatsApp phone (patched)
+  PRICE: "50.00",               
+  SELLER_NAME: "TapRush Dev",   
+  SELLER_PASSPHRASE: "bittu-admin-anamika$7417324430", // patched admin passphrase
+};
+document.getElementById('sellerPhone').innerText = CONFIG.SELLER_PHONE;
+
+// ---------- Unlock mechanics ----------
+const STORAGE_KEY = 'taprush_full_unlocked_v1';
+function isUnlocked(){ return localStorage.getItem(STORAGE_KEY) === '1'; }
+function setUnlocked(){ localStorage.setItem(STORAGE_KEY,'1'); }
+
+function showTopToast(msg, color='#2ecc71', ttl=2000){
+  const t = document.getElementById('topToast');
+  t.style.display='block'; t.style.background=color; t.style.color='#011';
+  t.innerText = msg;
+  setTimeout(()=>{ t.style.display='none'; }, ttl);
+}
+
+// Admin code generator (runs in-browser if you know passphrase)
+function generateUnlockCode() {
+  const code = 'TAP' + Math.floor(100000 + Math.random()*900000);
+  return code;
+}
+
+// Admin panel hidden: open index.html#admin and enter passphrase
+if (location.hash === '#admin'){
+  setTimeout(()=>{
+    const pass = prompt('Enter admin passphrase:');
+    if(pass === CONFIG.SELLER_PASSPHRASE){
+      const code = generateUnlockCode();
+      alert('New unlock code: ' + code + '\nGive this to buyer when they pay.');
+      navigator.clipboard && navigator.clipboard.writeText(code).then(()=>console.log('copied'));
+    } else alert('Wrong passphrase');
+  },100);
+}
+
+// UI handlers
+const buyBtn = document.getElementById('buyBtn');
+const enterCodeBtn = document.getElementById('enterCodeBtn');
+const codeModal = document.getElementById('codeModal');
+const closeCode = document.getElementById('closeCode');
+const submitCode = document.getElementById('submitCode');
+const unlockInput = document.getElementById('unlockInput');
+const unlockMsg = document.getElementById('unlockMsg');
+
+buyBtn.addEventListener('click', function(){ buyNow(); });
+enterCodeBtn.addEventListener('click', function(){ codeModal.style.display='flex'; unlockInput.value=''; unlockMsg.innerText=''; });
+closeCode.addEventListener('click', ()=> codeModal.style.display='none');
+submitCode.addEventListener('click', ()=>{
+  const v = unlockInput.value.trim();
+  if(!v) { unlockMsg.innerText='Enter a valid code.'; return; }
+  if(/^TAP\d{6}$/.test(v)){
+    setUnlocked(); unlockMsg.innerText='Unlocked! Thank you — full features enabled.';
+    codeModal.style.display='none';
+    showTopToast('Full version active');
+    console.log('User unlocked with code', v);
+  } else {
+    unlockMsg.innerText='Invalid code. Contact seller.';
+  }
+});
+
+// UPI payment flow
+function buyNow(){
+  const vpa = CONFIG.VPA;
+  const amount = CONFIG.PRICE;
+  const tn = encodeURIComponent('Buy TapRush Full');
+  const uri = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(CONFIG.SELLER_NAME)}&am=${amount}&cu=INR&tn=${tn}`;
+  // try to open UPI app
+  window.location.href = uri;
+  setTimeout(()=>{
+    alert('If your UPI app did not open, please pay ₹' + amount + ' to ' + vpa + ' with note: TapRushFull, then send screenshot to ' + CONFIG.SELLER_PHONE + '.\nSeller will reply with an unlock code.');
+  },1200);
+}
+
+// share helpers
+function shareInvite(){
+  const text = `Playing TapRush! Beat my score and unlock full version for ₹${CONFIG.PRICE}. Link: [PUT_YOUR_LINK_HERE]`;
+  if(navigator.share){ navigator.share({ title: 'TapRush', text }); }
+  else { prompt('Copy and share this message:', text); }
+}
+
+// ---------------- Phaser Game ----------------
+const WIDTH = Math.min(900, window.innerWidth);
+const HEIGHT = Math.min(1500, window.innerHeight);
+
+const GAME_CONFIG = {
+  type: Phaser.AUTO,
+  width: WIDTH,
+  height: HEIGHT,
+  backgroundColor: '#0b1220',
+  parent: null,
+  scene: { preload, create, update },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }
+};
+
+const game = new Phaser.Game(GAME_CONFIG);
+let player, coins, scoreText, bestText, score=0, best=0, speed=200, gameOver=false, skinUnlocked=false;
+
+function preload(){
+  // small single-file friendly assets (hotlinked)
+  this.load.image('bg', 'https://i.imgur.com/3eQG5gY.png');
+  this.load.image('player', 'https://i.imgur.com/7r3Q7Qz.png');
+  this.load.image('coin', 'https://i.imgur.com/su8bKQh.png');
+  this.load.image('skin', 'https://i.imgur.com/3J3Q3qK.png');
+}
+
+function create(){
+  this.add.rectangle(WIDTH/2, HEIGHT/2, WIDTH, HEIGHT, 0x071126);
+  player = this.physics.add.image(WIDTH/2, HEIGHT - 150, 'player').setScale(0.6);
+  player.setCollideWorldBounds(true);
+  coins = this.physics.add.group();
+  this.physics.add.overlap(player, coins, collectCoin, null, this);
+  scoreText = this.add.text(12,12, 'Score: 0', { font: '24px Arial', fill: '#ffffff' });
+  best = parseInt(localStorage.getItem('taprush_best_score')||'0');
+  bestText = this.add.text(12,42, 'Best: ' + best, { font: '18px Arial', fill: '#bbbbbb' });
+  this.add.text(WIDTH - 200, 12, 'Tap to jump', { font: '16px Arial', fill: '#fff' });
+  this.time.addEvent({ delay: 800, callback: spawnCoin, callbackScope: this, loop: true });
+  this.input.on('pointerdown', ()=>{ if(gameOver) restart(this); else jump(); });
+  skinUnlocked = isUnlocked();
+  if(skinUnlocked) showTopToast('Full version active');
+}
+
+function update(time, delta){
+  if(gameOver) return;
+  speed += 0.002 * delta;
+  if(!player.body.touching.down) player.setVelocityY(player.body.velocity.y + 8);
+}
+
+function jump(){ player.setVelocityY(-350); }
+
+function spawnCoin(){
+  const x = Phaser.Math.Between(40, WIDTH - 40);
+  const c = coins.create(x, -20, 'coin').setScale(0.5);
+  c.setVelocityY(Phaser.Math.Between(150, 300) + speed);
+  c.setCollideWorldBounds(false);
+  c.body.checkWorldBounds = true;
+  c.body.onWorldBounds = true;
+  c.body.world.on('worldbounds', function(body){
+    if(body.gameObject && body.gameObject.texture && body.gameObject.texture.key === 'coin'){
+      score = Math.max(0, score - 1);
+      scoreText.setText('Score: ' + score);
+    }
+  });
+}
+
+function collectCoin(p, coin){
+  coin.destroy();
+  score += (skinUnlocked?10:5);
+  scoreText.setText('Score: ' + score);
+  if(score > best){ best = score; localStorage.setItem('taprush_best_score', best); bestText.setText('Best: ' + best); }
+}
+
+function restart(scene){ score = 0; scoreText.setText('Score: 0'); coins.clear(true,true); gameOver=false; }
+
+function showUnlockedToast(msg){
+  const div = document.createElement('div');
+  div.style.position='fixed'; div.style.left='50%'; div.style.transform='translateX(-50%)';
+  div.style.top='12px'; div.style.background='#2ecc71'; div.style.color='#011'; div.style.padding='10px 12px'; div.style.borderRadius='8px';
+  div.style.fontWeight='700'; div.innerText = msg;
+  document.body.appendChild(div);
+  setTimeout(()=>div.remove(),2000);
+}
+
+if(isUnlocked()){
+  buyBtn.innerText = 'Full Purchased'; buyBtn.style.opacity = '0.6'; buyBtn.style.pointerEvents = 'none';
+}
+
+// small keyboard helpers for desktop/admin
+window.addEventListener('keydown', (e)=>{
+  if(e.key === 'u') codeModal.style.display='flex';
+  if(e.key === 's') shareInvite();
+});
+</script>
+
+</body>
+</html>
